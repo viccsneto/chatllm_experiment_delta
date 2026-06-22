@@ -19,13 +19,28 @@ function App() {
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [initializing, setInitializing] = useState(true);
+
+  // Auth state
+  const [user, setUser] = useState(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isSignup, setIsSignup] = useState(false);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+
   const messagesRef = useRef(null);
   const abortControllerRef = useRef(null);
 
-  // Carrega sessoes e cria uma nova ao montar
+  // Check auth on mount + load sessions
   useEffect(() => {
     async function init() {
       try {
+        const userData = await checkAuth();
+        if (userData) {
+          setUser(userData);
+          localStorage.setItem("auth_token", userData.token || localStorage.getItem("auth_token"));
+        }
         const existing = await listSessions();
         setSessions(existing);
         const session = await createSession();
@@ -79,6 +94,17 @@ function App() {
     }
   }, []);
 
+  const resetToNewSession = useCallback(async () => {
+    try {
+      const session = await createSession();
+      setSessions([session]);
+      setCurrentSessionId(session.id);
+      setMessages([WELCOME_MESSAGE]);
+    } catch {
+      setError("Erro ao criar sessao.");
+    }
+  }, []);
+
   const handleDeleteSession = useCallback(async (sessionId, event) => {
     event.stopPropagation();
     try {
@@ -110,6 +136,91 @@ function App() {
   const handleSessionTitleClick = useCallback(async (sessionId) => {
     await loadSessionMessages(sessionId);
   }, [loadSessionMessages]);
+
+  // ── Auth handlers ──────────────────────────────────────────────────────
+
+  const handleOpenLogin = () => {
+    setIsSignup(false);
+    setAuthEmail("");
+    setAuthPassword("");
+    setAuthError("");
+    setShowAuthModal(true);
+  };
+
+  const handleOpenSignup = () => {
+    setIsSignup(true);
+    setAuthEmail("");
+    setAuthPassword("");
+    setAuthError("");
+    setShowAuthModal(true);
+  };
+
+  const handleCloseAuth = () => {
+    setShowAuthModal(false);
+    setAuthError("");
+  };
+
+  const switchToSignup = () => {
+    setIsSignup(true);
+    setAuthError("");
+  };
+
+  const switchToLogin = () => {
+    setIsSignup(false);
+    setAuthError("");
+  };
+
+  const handleAuthSubmit = async (event) => {
+    event.preventDefault();
+    const email = authEmail.trim();
+    const password = authPassword.trim();
+    if (!email || !password) return;
+
+    setAuthBusy(true);
+    setAuthError("");
+
+    try {
+      let result;
+      if (isSignup) {
+        result = await signup(email, password);
+      } else {
+        result = await login(email, password);
+      }
+
+      // Salva token
+      localStorage.setItem("auth_token", result.token);
+      setUser({ user_id: result.user_id, email: result.email });
+      setShowAuthModal(false);
+
+      // 1. Remove sessoes nao proprietarias do banco
+      try { await deleteUnownedSessions(); } catch {}
+
+      // 2. Carrega sessoes do usuario
+      const userSessions = await listSessions();
+      if (userSessions.length > 0) {
+        setSessions(userSessions);
+        setCurrentSessionId(userSessions[0].id);
+        await loadSessionMessages(userSessions[0].id);
+      } else {
+        await resetToNewSession();
+      }
+    } catch (err) {
+      setAuthError(err.message || "Erro na autenticacao");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch {}
+    localStorage.removeItem("auth_token");
+    setUser(null);
+    await resetToNewSession();
+  };
+
+  // ── Submit ──────────────────────────────────────────────────────────────
 
   const onSubmit = async (event, inputRef) => {
     event.preventDefault();
@@ -192,7 +303,16 @@ function App() {
         <div className="brand">
           {sessions.find((s) => s.id === currentSessionId)?.title || "ChatLLM Lab"}
         </div>
-        <div className="header-right" />
+        <div className="header-right">
+          {user ? (
+            <div className="header-user-area">
+              <span className="header-user-email" title={user.email}>{user.email.split("@")[0]}</span>
+              <button className="auth-btn logout-btn" onClick={handleLogout}>Logout</button>
+            </div>
+          ) : (
+            <button className="auth-btn login-btn" onClick={handleOpenLogin}>Login</button>
+          )}
+        </div>
       </header>
 
       <div className="app-body">
@@ -228,6 +348,48 @@ function App() {
           <Composer text={text} busy={busy} error={error} onChangeText={setText} onSubmit={onSubmit} onStop={onStop} />
         </div>
       </div>
+
+      {/* Auth Modal */}
+      {showAuthModal && (
+        <div className="auth-overlay" onClick={handleCloseAuth}>
+          <div className="auth-modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="auth-title">{isSignup ? "Cadastro" : "Login"}</h2>
+            <form onSubmit={handleAuthSubmit}>
+              <input
+                className="auth-input"
+                type="email"
+                placeholder="Email"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                disabled={authBusy}
+                autoFocus
+                required
+              />
+              <input
+                className="auth-input"
+                type="password"
+                placeholder="Senha"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                disabled={authBusy}
+                minLength={6}
+                required
+              />
+              {authError && <div className="auth-error">{authError}</div>}
+              <button className="auth-submit" type="submit" disabled={authBusy}>
+                {authBusy ? "Aguarde..." : isSignup ? "Cadastrar" : "Entrar"}
+              </button>
+            </form>
+            <div className="auth-switch">
+              {isSignup ? (
+                <span>Ja tem conta? <button className="auth-link" onClick={switchToLogin}>Entre</button></span>
+              ) : (
+                <span>Nao tem conta? <button className="auth-link" onClick={switchToSignup}>Cadastre-se</button></span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="warning-banner">Lembre-se, voce precisa focar no experimento!!!</div>
     </main>

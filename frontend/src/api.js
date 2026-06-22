@@ -1,9 +1,14 @@
 const API_BASE = window.location.origin;
 
+function getAuthHeaders() {
+  const token = localStorage.getItem("auth_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function sendMessageStream({ message, history, sessionId, signal, onDelta, onDone }) {
   const response = await fetch(`${API_BASE}/api/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify({ message, history, session_id: sessionId }),
     signal,
   });
@@ -69,13 +74,16 @@ async function sendMessageStream({ message, history, sessionId, signal, onDelta,
 async function createSession() {
   const response = await fetch(`${API_BASE}/api/sessions`, {
     method: "POST",
+    headers: getAuthHeaders(),
   });
   if (!response.ok) throw new Error("Falha ao criar sessao");
   return response.json();
 }
 
 async function listSessions() {
-  const response = await fetch(`${API_BASE}/api/sessions`);
+  const response = await fetch(`${API_BASE}/api/sessions`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) throw new Error("Falha ao listar sessoes");
   return response.json();
 }
@@ -89,9 +97,62 @@ async function getSessionMessages(sessionId) {
 async function deleteSession(sessionId) {
   const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`, {
     method: "DELETE",
+    headers: getAuthHeaders(),
   });
   if (!response.ok && response.status !== 404) {
     throw new Error("Falha ao deletar sessao");
   }
   return response.status === 204;
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+async function signup(email, password) {
+  const response = await fetch(`${API_BASE}/api/auth/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || "Erro no cadastro");
+  return data;
+}
+
+async function login(email, password) {
+  const response = await fetch(`${API_BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || "Erro no login");
+  return data;
+}
+
+async function logout() {
+  const response = await fetch(`${API_BASE}/api/auth/logout`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) throw new Error("Erro ao fazer logout");
+}
+
+async function checkAuth() {
+  try {
+    const response = await fetch(`${API_BASE}/api/auth/me`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) return null;
+    return response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function deleteUnownedSessions() {
+  const response = await fetch(`${API_BASE}/api/sessions/delete-unowned`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) throw new Error("Falha ao limpar sessoes");
 }
