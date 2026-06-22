@@ -19,3 +19,22 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     model: str
+
+
+class SessionCreate(BaseModel):
+    pass
+
+
+class SessionResponse(BaseModel):
+    id: str
+    title: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class SessionTitleUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+
+
+class ChatRequestWithSession(ChatRequest):
+    session_id: str | None = None

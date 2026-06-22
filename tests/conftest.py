@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -13,11 +13,20 @@ from backend.main import app
 @pytest.fixture(scope="session")
 def engine():
     """Cria um engine SQLite em memoria para os testes."""
-    return create_engine(
+    engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
+    # Ativa foreign keys no SQLite
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    return engine
 
 
 @pytest.fixture(scope="session")
