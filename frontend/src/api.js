@@ -1,10 +1,10 @@
 const API_BASE = window.location.origin;
 
-async function sendMessageStream({ message, history, onDelta, signal }) {
+async function sendMessageStream({ message, history, sessionId, signal, onDelta, onDone }) {
   const response = await fetch(`${API_BASE}/api/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ message, history, session_id: sessionId }),
     signal,
   });
 
@@ -21,6 +21,7 @@ async function sendMessageStream({ message, history, onDelta, signal }) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
+  let resolvedSessionId = null;
 
   while (true) {
     const { value, done } = await reader.read();
@@ -50,9 +51,47 @@ async function sendMessageStream({ message, history, onDelta, signal }) {
         throw new Error(payload.error);
       }
 
+      if (payload.session_id) {
+        resolvedSessionId = payload.session_id;
+      }
+
       if (payload.delta) {
         onDelta(payload.delta);
       }
+
+      if (payload.done && onDone) {
+        onDone(resolvedSessionId);
+      }
     }
   }
+}
+
+async function createSession() {
+  const response = await fetch(`${API_BASE}/api/sessions`, {
+    method: "POST",
+  });
+  if (!response.ok) throw new Error("Falha ao criar sessao");
+  return response.json();
+}
+
+async function listSessions() {
+  const response = await fetch(`${API_BASE}/api/sessions`);
+  if (!response.ok) throw new Error("Falha ao listar sessoes");
+  return response.json();
+}
+
+async function getSessionMessages(sessionId) {
+  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}/messages`);
+  if (!response.ok) throw new Error("Falha ao carregar mensagens");
+  return response.json();
+}
+
+async function deleteSession(sessionId) {
+  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok && response.status !== 404) {
+    throw new Error("Falha ao deletar sessao");
+  }
+  return response.status === 204;
 }

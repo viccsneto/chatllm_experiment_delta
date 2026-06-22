@@ -8,13 +8,43 @@ from sqlalchemy.orm import Session
 
 from backend.config import OPENROUTER_MODEL_DEFAULT
 from backend.database import get_db
-from backend.models import ChatMessage
-from backend.schemas.chat import ChatRequest, ChatResponse
+from backend.models import ChatMessage, Session
+from backend.schemas.chat import ChatRequest, ChatResponse, ChatRequestWithSession
 from backend.services.openrouter import OpenRouterConfigError, generate_reply, stream_reply
+from backend.services.session_title import generate_chat_title
 
 
 router = APIRouter()
 
+
+def _ensure_session(session_id: str | None, db: Session) -> Session:
+    """Retorna a sessao existente ou cria uma nova se session_id for None."""
+    if session_id:
+        sess = db.query(Session).filter(Session.id == session_id).first()
+        if sess:
+            return sess
+    # Cria nova sessao
+    sess = Session()
+    db.add(sess)
+    db.commit()
+    db.refresh(sess)
+    return sess
+
+
+async def _auto_generate_title(sess: Session, user_message: str, db: Session) -> None:
+    """Gera titulo automatico se a sessao ainda nao tiver um."""
+    from backend.models import Session as SessionModel
+
+    # Re-consulta para garantir objeto fresco (evita expired state)
+    db_sess = db.query(SessionModel).filter(SessionModel.id == sess.id).first()
+    if not db_sess or db_sess.title is not None:
+        return
+
+    title = await generate_chat_title(user_message)
+    if title:
+        db_sess.title = title
+        db.commit()
+        db.refresh(db_sess)
 
 @router.get("/health")
 def health_check() -> dict[str, str]:
@@ -22,7 +52,9 @@ def health_check() -> dict[str, str]:
 
 
 @router.post("/api/chat", response_model=ChatResponse)
-async def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
+async def chat(payload: ChatRequestWithSession, db: Session = Depends(get_db)) -> ChatResponse:
+    sess = _ensure_session(payload.session_id, db)
+
     try:
         reply, model_name = await generate_reply(
             user_message=payload.message,
@@ -36,16 +68,18 @@ async def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatRespo
 
     resolved_model = payload.model or model_name or OPENROUTER_MODEL_DEFAULT
 
-    # Persistimos apenas o fluxo basico de mensagens; sessoes e titulos sao tarefa do participante.
-    db.add(ChatMessage(session_key="default", role="user", content=payload.message, model=resolved_model))
-    db.add(ChatMessage(session_key="default", role="assistant", content=reply, model=resolved_model))
+    db.add(ChatMessage(session_key=sess.id, role="user", content=payload.message, model=resolved_model))
+    db.add(ChatMessage(session_key=sess.id, role="assistant", content=reply, model=resolved_model))
     db.commit()
+
+    await _auto_generate_title(sess, payload.message, db)
 
     return ChatResponse(reply=reply, model=resolved_model)
 
 
 @router.post("/api/chat/stream")
-async def chat_stream(payload: ChatRequest, db: Session = Depends(get_db)) -> StreamingResponse:
+async def chat_stream(payload: ChatRequestWithSession, db: Session = Depends(get_db)) -> StreamingResponse:
+    sess = _ensure_session(payload.session_id, db)
     resolved_model = payload.model or OPENROUTER_MODEL_DEFAULT
 
     async def event_generator():
@@ -68,7 +102,7 @@ async def chat_stream(payload: ChatRequest, db: Session = Depends(get_db)) -> St
         if full_reply.strip():
             db.add(
                 ChatMessage(
-                    session_key="default",
+                    session_key=sess.id,
                     role="user",
                     content=payload.message,
                     model=resolved_model,
@@ -76,7 +110,7 @@ async def chat_stream(payload: ChatRequest, db: Session = Depends(get_db)) -> St
             )
             db.add(
                 ChatMessage(
-                    session_key="default",
+                    session_key=sess.id,
                     role="assistant",
                     content=full_reply,
                     model=resolved_model,
@@ -84,7 +118,9 @@ async def chat_stream(payload: ChatRequest, db: Session = Depends(get_db)) -> St
             )
             db.commit()
 
-        yield f"data: {json.dumps({'done': True}, ensure_ascii=True)}\n\n"
+            await _auto_generate_title(sess, payload.message, db)
+
+        yield f"data: {json.dumps({'session_id': sess.id, 'done': True}, ensure_ascii=True)}\n\n"
 
     return StreamingResponse(
         event_generator(),
