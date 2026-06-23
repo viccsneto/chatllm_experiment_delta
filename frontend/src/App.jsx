@@ -4,7 +4,7 @@ function createMessageId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function App() {
+function AppAuthenticated({ token, email, onLogout }) {
   const [sessions, setSessions] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -242,7 +242,15 @@ function App() {
           )}
         </div>
         <div className="sidebar-footer">
-          <span className="sidebar-brand">ChatLLM Lab</span>
+          <div className="sidebar-user">
+            <span className="sidebar-email">{email}</span>
+            <button className="logout-btn" onClick={onLogout} title="Sair">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M4 4a3 3 0 0 1 3-3h2a3 3 0 0 1 3 3v.75a.75.75 0 0 1-1.5 0V4a1.5 1.5 0 0 0-1.5-1.5H7A1.5 1.5 0 0 0 5.5 4v8A1.5 1.5 0 0 0 7 13.5h2a1.5 1.5 0 0 0 1.5-1.5v-.75a.75.75 0 0 1 1.5 0v.75a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V4zm8.03 1.47a.75.75 0 0 1 1.06 0l2.5 2.5a.75.75 0 0 1 0 1.06l-2.5 2.5a.75.75 0 1 1-1.06-1.06l1.22-1.22H6.75a.75.75 0 0 1 0-1.5h6.5l-1.22-1.22a.75.75 0 0 1 0-1.06z"/>
+              </svg>
+              Sair
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -280,6 +288,30 @@ function App() {
       </div>
     </div>
   );
+}
+
+function App() {
+  const [token, setToken] = useState(() => localStorage.getItem("auth_token"));
+  const [email, setEmail] = useState(() => localStorage.getItem("auth_email") || "");
+
+  const handleLogin = (newToken, newEmail) => {
+    setToken(newToken);
+    setEmail(newEmail);
+  };
+
+  const handleLogout = () => {
+    fetch(`${window.location.origin}/api/auth/logout`, { method: "POST" }).catch(() => {});
+    localStorage.removeItem("auth_token");
+    localStorage.removeItem("auth_email");
+    setToken(null);
+    setEmail("");
+  };
+
+  if (!token) {
+    return React.createElement(LoginPage, { onLogin: handleLogin });
+  }
+
+  return React.createElement(AppAuthenticated, { token, email, onLogout: handleLogout });
 }
 
 const root = ReactDOM.createRoot(document.getElementById("root"));

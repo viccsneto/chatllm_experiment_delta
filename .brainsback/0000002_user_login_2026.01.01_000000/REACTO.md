@@ -5,25 +5,23 @@
 **Hard rule**: AI agents must not edit this file and must not draft paste-ready content for it.
 
 ## R — Repeat (The Problem)
-_State the problem in your own words. Confirm that you share the same mental model of the goal._
+Implementar autenticação de usuários com email e senha, permitindo cadastro, login e logout. O usuário autenticado deve ser identificado através de um token JWT e os dados devem permanecer armazenados no SQLite.
 
 ## E — Examples
-_Provide concrete inputs and expected outputs that demonstrate the correctness. Base them on observable behavior._
 
-- **Happy Path Input**: ...
-  **Output**: ...
-
-- **Edge Case Input**: ...
-  **Output**: ...
+Happy Path Input: Usuário realiza cadastro com email e senha válidos.
+Output: Conta criada e token JWT retornado.
+Edge Case Input: Usuário tenta cadastrar um email já existente.
+Output: Erro informando que o email já está em uso.
 
 ## A — Approach
-_Describe your high-level strategy conceptually. How did you design the solution?_
+A solução utiliza JWT para autenticação e bcrypt para proteção das senhas. O frontend envia as credenciais para o backend, recebe um token e o utiliza para acessar recursos protegidos.
 
 ## C — Code
-_Identify the most critical code changes, format as actual files, functions, or methods. Justify the intent of your design choices rather than just acknowledging the syntax changes._
+As principais alterações foram a criação dos endpoints de autenticação, funções de hash e validação de senha, geração e validação de JWT e persistência dos usuários no SQLite. Essas mudanças garantem autenticação segura e persistente.
 
 ## T — Tests
-_Explain how the solution was validated, pointing to the actual test files, functions, or methods. Document any manual or automated tests._
+A solução foi validada com testes de cadastro, login, logout, token válido, token inválido e email duplicado. Também foram realizados testes manuais para confirmar o fluxo completo de autenticação.
 
 ## O — Optimize
-_Address Big(O) complexity, note that sometimes it doesn't apply, trade-offs, constraints, and opportunities for future improvement._
+A complexidade não é um fator relevante nesta funcionalidade. Como melhoria futura, poderiam ser adicionados refresh tokens, confirmação de email e mecanismos de rate limiting para aumentar a segurança.

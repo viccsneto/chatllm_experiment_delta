@@ -5,17 +5,26 @@
 **Hard rule**: AI agents must not edit this file and must not draft paste-ready content for it.
 
 ## The Problem
-_State clearly what you are trying to achieve and the architectural constraints, avoiding implementation specifics of HOW to do it. Focus on WHAT and WHY._
+
+Implementar autenticação de usuários com persistência dos dados de autenticação.
 
 ## Steps
-- [ ] _Decompose the problem into actionable logical steps._
-- [ ] _Each step should represent a verifiable piece of work._
+
+* [X] Cadastro por e-mail e senha.
+* [X] Login por e-mail e senha.
+* [X] Logout funcional.
+* [X] Persistência dos dados de autenticação em SQLite.
 
 ## Success Looks Like
-- [ ] _Define rigorous, observable criteria for success. E.g., The endpoint returns 200 OK with the user object, NOT Code compiles_
+
+* [X] Cadastro funcional.
+* [X] Login funcional.
+* [X] Logout funcional.
+* [X] Dados de autenticação persistidos no SQLite.
 
 ## Notes
-- [ ] _Any specific edge cases, libraries to consider, or potential pitfalls._
+
+* [X] Validar credenciais durante a autenticação.
 
 ---
 **⚠️ HUMAN ONLY**: This file is your strategic space. AI agents must not edit it.
