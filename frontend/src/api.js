@@ -1,10 +1,37 @@
 const API_BASE = window.location.origin;
 
-async function sendMessageStream({ message, history, onDelta, signal }) {
+/* ── Token management ───────────────────────────────────────── */
+function getToken() {
+  return localStorage.getItem("chatllm_token");
+}
+
+function setToken(token) {
+  if (token) localStorage.setItem("chatllm_token", token);
+  else localStorage.removeItem("chatllm_token");
+}
+
+function authHeaders(headers = {}) {
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return headers;
+}
+
+/* ── Chat API ───────────────────────────────────────────────── */
+
+async function sendMessageStream({
+  message,
+  history,
+  onDelta,
+  signal,
+  sessionId,
+}) {
+  const body = { message, history };
+  if (sessionId) body.session_id = sessionId;
+
   const response = await fetch(`${API_BASE}/api/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, history }),
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body),
     signal,
   });
 
@@ -42,7 +69,7 @@ async function sendMessageStream({ message, history, onDelta, signal }) {
       let payload;
       try {
         payload = JSON.parse(payloadText);
-      } catch {
+      } catch (e) {
         continue;
       }
 
@@ -55,4 +82,64 @@ async function sendMessageStream({ message, history, onDelta, signal }) {
       }
     }
   }
+}
+
+/* ── Auth API ───────────────────────────────────────────────── */
+
+async function registerUser(email, password) {
+  const resp = await fetch(`${API_BASE}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body?.detail || "Erro ao cadastrar.");
+  }
+  return await resp.json();
+}
+
+async function loginUser(email, password) {
+  const resp = await fetch(`${API_BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body?.detail || "Email ou senha incorretos.");
+  }
+  return await resp.json();
+}
+
+/* ── Session API (authenticated) ────────────────────────────── */
+
+async function apiFetch(url, options = {}) {
+  const headers = authHeaders({ "Content-Type": "application/json" });
+  const response = await fetch(url, { headers, ...options });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body?.detail || `Erro ${response.status}`);
+  }
+  return response;
+}
+
+async function listSessions() {
+  const resp = await apiFetch(`${API_BASE}/api/sessions`);
+  const data = await resp.json();
+  return data.sessions;
+}
+
+async function createSession() {
+  const resp = await apiFetch(`${API_BASE}/api/sessions`, { method: "POST" });
+  return await resp.json();
+}
+
+async function getSessionMessages(sessionId) {
+  const resp = await apiFetch(`${API_BASE}/api/sessions/${sessionId}/messages`);
+  return await resp.json();
+}
+
+async function deleteSession(sessionId) {
+  await apiFetch(`${API_BASE}/api/sessions/${sessionId}`, { method: "DELETE" });
 }
