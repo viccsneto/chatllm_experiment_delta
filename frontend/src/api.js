@@ -1,10 +1,10 @@
 const API_BASE = window.location.origin;
 
-async function sendMessageStream({ message, history, onDelta, signal }) {
+async function sendMessageStream({ message, sessionId, history, onDelta, signal }) {
   const response = await fetch(`${API_BASE}/api/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ message, session_id: sessionId, history }),
     signal,
   });
 
@@ -55,4 +55,35 @@ async function sendMessageStream({ message, history, onDelta, signal }) {
       }
     }
   }
+}
+
+async function fetchSessions() {
+  const response = await fetch(`${API_BASE}/api/sessions`);
+  if (!response.ok) throw new Error("Erro ao carregar sessoes.");
+  const data = await response.json();
+  return data.sessions;
+}
+
+async function createSession() {
+  const response = await fetch(`${API_BASE}/api/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!response.ok) throw new Error("Erro ao criar sessao.");
+  return response.json();
+}
+
+async function deleteSession(sessionId) {
+  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error("Erro ao deletar sessao.");
+  return response.json();
+}
+
+async function fetchSessionMessages(sessionId) {
+  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}/messages`);
+  if (!response.ok) throw new Error("Erro ao carregar mensagens.");
+  return response.json();
 }

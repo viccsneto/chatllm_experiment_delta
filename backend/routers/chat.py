@@ -8,9 +8,9 @@ from sqlalchemy.orm import Session
 
 from backend.config import OPENROUTER_MODEL_DEFAULT
 from backend.database import get_db
-from backend.models import ChatMessage
+from backend.models import ChatMessage, ChatSession
 from backend.schemas.chat import ChatRequest, ChatResponse
-from backend.services.openrouter import OpenRouterConfigError, generate_reply, stream_reply
+from backend.services.openrouter import OpenRouterConfigError, generate_reply, generate_title, stream_reply
 
 
 router = APIRouter()
@@ -19,6 +19,59 @@ router = APIRouter()
 @router.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def _resolve_or_create_session(db: Session, session_id: int | None = None) -> tuple[int, bool]:
+    """Returns (session_id, is_new). Creates a new session if none provided."""
+    if session_id:
+        session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+        if session:
+            return session.id, False
+    session = ChatSession(title="Nova conversa", title_generated=False)
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return session.id, True
+
+
+def _try_generate_title_blocking(db: Session, session_id: int, user_message: str):
+    """Fire-and-forget title generation using a synchronous call."""
+    import httpx
+    from backend.config import OPENROUTER_API_KEY, OPENROUTER_API_URL
+
+    session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not session or session.title_generated:
+        return
+
+    prompt = (
+        "Gere um título curto e descritivo (máximo 50 caracteres, sem aspas) "
+        "para uma conversa cuja primeira mensagem do usuário é:\n\n"
+        f"{user_message}\n\nTítulo:"
+    )
+
+    try:
+        resp = httpx.post(
+            OPENROUTER_API_URL,
+            json={
+                "model": "google/gemma-4-31b-it",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 30,
+                "temperature": 0.3,
+            },
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            timeout=15.0,
+        )
+        if resp.status_code < 400:
+            content = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip().strip('"\' \n')
+            if content and len(content) <= 60 and content != "Nova conversa":
+                session.title = content
+                session.title_generated = True
+                db.commit()
+    except Exception:
+        pass
 
 
 @router.post("/api/chat", response_model=ChatResponse)
@@ -36,10 +89,13 @@ async def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatRespo
 
     resolved_model = payload.model or model_name or OPENROUTER_MODEL_DEFAULT
 
-    # Persistimos apenas o fluxo basico de mensagens; sessoes e titulos sao tarefa do participante.
-    db.add(ChatMessage(session_key="default", role="user", content=payload.message, model=resolved_model))
-    db.add(ChatMessage(session_key="default", role="assistant", content=reply, model=resolved_model))
+    session_id, _ = _resolve_or_create_session(db, payload.session_id)
+
+    db.add(ChatMessage(session_id=session_id, role="user", content=payload.message, model=resolved_model))
+    db.add(ChatMessage(session_id=session_id, role="assistant", content=reply, model=resolved_model))
     db.commit()
+
+    _try_generate_title_blocking(db, session_id, payload.message)
 
     return ChatResponse(reply=reply, model=resolved_model)
 
@@ -47,6 +103,7 @@ async def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatRespo
 @router.post("/api/chat/stream")
 async def chat_stream(payload: ChatRequest, db: Session = Depends(get_db)) -> StreamingResponse:
     resolved_model = payload.model or OPENROUTER_MODEL_DEFAULT
+    session_id, _ = _resolve_or_create_session(db, payload.session_id)
 
     async def event_generator():
         full_reply = ""
@@ -68,7 +125,7 @@ async def chat_stream(payload: ChatRequest, db: Session = Depends(get_db)) -> St
         if full_reply.strip():
             db.add(
                 ChatMessage(
-                    session_key="default",
+                    session_id=session_id,
                     role="user",
                     content=payload.message,
                     model=resolved_model,
@@ -76,13 +133,15 @@ async def chat_stream(payload: ChatRequest, db: Session = Depends(get_db)) -> St
             )
             db.add(
                 ChatMessage(
-                    session_key="default",
+                    session_id=session_id,
                     role="assistant",
                     content=full_reply,
                     model=resolved_model,
                 )
             )
             db.commit()
+
+        _try_generate_title_blocking(db, session_id, payload.message)
 
         yield f"data: {json.dumps({'done': True}, ensure_ascii=True)}\n\n"
 
