@@ -71,6 +71,39 @@ async def generate_reply(*, user_message: str, history: list[dict], model: str |
     return reply, resolved_model
 
 
+async def generate_title(*, user_message: str) -> str:
+    """Gera um título curto (máx 50 caracteres) para a sessão baseado na primeira mensagem."""
+    if not OPENROUTER_API_KEY:
+        return "Nova conversa"
+
+    prompt = (
+        "Gere um título curto e descritivo (máximo 50 caracteres, sem aspas) "
+        "para uma conversa cuja primeira mensagem do usuário é:\n\n"
+        f"{user_message}\n\nTítulo:"
+    )
+
+    payload = {
+        "model": "google/gemma-4-31b-it",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 30,
+        "temperature": 0.3,
+    }
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(OPENROUTER_API_URL, json=payload, headers=_build_headers())
+
+    if response.status_code >= 400:
+        return "Nova conversa"
+
+    data = response.json()
+    content = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+    content = content.strip('"\' \n')
+    if not content or len(content) > 60:
+        return "Nova conversa"
+
+    return content
+
+
 async def stream_reply(*, user_message: str, history: list[dict], model: str | None = None):
     if not OPENROUTER_API_KEY:
         raise OpenRouterConfigError(
