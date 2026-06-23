@@ -1,10 +1,45 @@
 const API_BASE = window.location.origin;
 
-async function sendMessageStream({ message, history, onDelta, signal }) {
-  const response = await fetch(`${API_BASE}/api/chat/stream`, {
+function getAuthHeaders() {
+  const token = localStorage.getItem("auth_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function registerUser(email, password) {
+  const response = await fetch(`${API_BASE}/api/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || "Erro ao cadastrar");
+  return data;
+}
+
+async function loginUser(email, password) {
+  const response = await fetch(`${API_BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || "E-mail ou senha incorretos");
+  return data;
+}
+
+async function logoutUser() {
+  const response = await fetch(`${API_BASE}/api/auth/logout`, {
+    method: "POST",
+    headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+  });
+  if (!response.ok) throw new Error("Erro ao sair");
+}
+
+async function sendMessageStream({ message, sessionId, history, onDelta, signal }) {
+  const response = await fetch(`${API_BASE}/api/chat/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify({ message, session_id: sessionId, history }),
     signal,
   });
 
@@ -53,6 +88,43 @@ async function sendMessageStream({ message, history, onDelta, signal }) {
       if (payload.delta) {
         onDelta(payload.delta);
       }
+
+      if (payload.done && payload.session_id) {
+        // Callback with session info so the app can update
+        if (onDelta.__sessionCallback) {
+          onDelta.__sessionCallback(payload.session_id, payload.title);
+        }
+      }
     }
   }
+}
+
+async function fetchSessions() {
+  const response = await fetch(`${API_BASE}/api/sessions`, { headers: getAuthHeaders() });
+  if (!response.ok) throw new Error("Erro ao carregar sessoes");
+  return response.json();
+}
+
+async function createSession() {
+  const response = await fetch(`${API_BASE}/api/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify({ title: "Nova conversa" }),
+  });
+  if (!response.ok) throw new Error("Erro ao criar sessao");
+  return response.json();
+}
+
+async function deleteSession(sessionId) {
+  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) throw new Error("Erro ao deletar sessao");
+}
+
+async function fetchSessionMessages(sessionId) {
+  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}/messages`, { headers: getAuthHeaders() });
+  if (!response.ok) throw new Error("Erro ao carregar mensagens");
+  return response.json();
 }
