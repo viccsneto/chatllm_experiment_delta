@@ -108,3 +108,38 @@ async def stream_reply(*, user_message: str, history: list[dict], model: str | N
                 delta = parsed.get("choices", [{}])[0].get("delta", {}).get("content")
                 if isinstance(delta, str) and delta:
                     yield delta
+
+
+_TITLE_SYSTEM_PROMPT = (
+    "You are a title generator. Based on the user's first message in a chat session, "
+    "generate a very short title (maximum 6 words) in the same language as the message. "
+    "Return ONLY the title text, no quotes, no explanation, no punctuation."
+)
+
+
+async def generate_title_for_session(first_user_message: str) -> str:
+    if not OPENROUTER_API_KEY:
+        return ""
+
+    messages = [
+        {"role": "system", "content": _TITLE_SYSTEM_PROMPT},
+        {"role": "user", "content": first_user_message},
+    ]
+
+    payload = {
+        "model": OPENROUTER_MODEL_DEFAULT,
+        "messages": messages,
+        "max_tokens": 30,
+        "temperature": 0.3,
+    }
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(OPENROUTER_API_URL, json=payload, headers=_build_headers())
+
+    if response.status_code >= 400:
+        return ""
+
+    data = response.json()
+    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    title = content.strip().strip('"').strip("'")
+    return title[:60] if title else ""
