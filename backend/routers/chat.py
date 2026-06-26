@@ -8,12 +8,36 @@ from sqlalchemy.orm import Session
 
 from backend.config import OPENROUTER_MODEL_DEFAULT
 from backend.database import get_db
-from backend.models import ChatMessage
+from backend.models import ChatMessage, Session as ChatSession
 from backend.schemas.chat import ChatRequest, ChatResponse
-from backend.services.openrouter import OpenRouterConfigError, generate_reply, stream_reply
+from backend.services.openrouter import OpenRouterConfigError, generate_reply, stream_reply, generate_title_for_session
 
 
 router = APIRouter()
+
+
+def _resolve_session(db: Session, session_id: int | None) -> ChatSession:
+    if session_id is not None:
+        session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+        if session:
+            return session
+    session = ChatSession()
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+async def _try_auto_title(db: Session, session: ChatSession, first_user_message: str) -> None:
+    if session.title:
+        return
+    try:
+        title = await generate_title_for_session(first_user_message)
+        if title:
+            session.title = title
+            db.commit()
+    except Exception:
+        pass
 
 
 @router.get("/health")
@@ -36,10 +60,13 @@ async def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatRespo
 
     resolved_model = payload.model or model_name or OPENROUTER_MODEL_DEFAULT
 
-    # Persistimos apenas o fluxo basico de mensagens; sessoes e titulos sao tarefa do participante.
-    db.add(ChatMessage(session_key="default", role="user", content=payload.message, model=resolved_model))
-    db.add(ChatMessage(session_key="default", role="assistant", content=reply, model=resolved_model))
+    session = _resolve_session(db, payload.session_id)
+
+    db.add(ChatMessage(session_id=session.id, role="user", content=payload.message, model=resolved_model))
+    db.add(ChatMessage(session_id=session.id, role="assistant", content=reply, model=resolved_model))
     db.commit()
+
+    await _try_auto_title(db, session, payload.message)
 
     return ChatResponse(reply=reply, model=resolved_model)
 
@@ -47,6 +74,7 @@ async def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatRespo
 @router.post("/api/chat/stream")
 async def chat_stream(payload: ChatRequest, db: Session = Depends(get_db)) -> StreamingResponse:
     resolved_model = payload.model or OPENROUTER_MODEL_DEFAULT
+    session = _resolve_session(db, payload.session_id)
 
     async def event_generator():
         full_reply = ""
@@ -68,7 +96,7 @@ async def chat_stream(payload: ChatRequest, db: Session = Depends(get_db)) -> St
         if full_reply.strip():
             db.add(
                 ChatMessage(
-                    session_key="default",
+                    session_id=session.id,
                     role="user",
                     content=payload.message,
                     model=resolved_model,
@@ -76,7 +104,7 @@ async def chat_stream(payload: ChatRequest, db: Session = Depends(get_db)) -> St
             )
             db.add(
                 ChatMessage(
-                    session_key="default",
+                    session_id=session.id,
                     role="assistant",
                     content=full_reply,
                     model=resolved_model,
@@ -84,7 +112,9 @@ async def chat_stream(payload: ChatRequest, db: Session = Depends(get_db)) -> St
             )
             db.commit()
 
-        yield f"data: {json.dumps({'done': True}, ensure_ascii=True)}\n\n"
+        await _try_auto_title(db, session, payload.message)
+
+        yield f"data: {json.dumps({'done': True, 'session_id': session.id, 'title': session.title}, ensure_ascii=True)}\n\n"
 
     return StreamingResponse(
         event_generator(),
