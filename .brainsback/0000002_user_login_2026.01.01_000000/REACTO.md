@@ -5,25 +5,30 @@
 **Hard rule**: AI agents must not edit this file and must not draft paste-ready content for it.
 
 ## R — Repeat (The Problem)
-_State the problem in your own words. Confirm that you share the same mental model of the goal._
+Implementar autenticação com email e senha, persistida em SQLite.
 
 ## E — Examples
-_Provide concrete inputs and expected outputs that demonstrate the correctness. Base them on observable behavior._
 
-- **Happy Path Input**: ...
-  **Output**: ...
+- **Happy Path Input**: Usuário faz login com email e senha corretos
+  **Output**: Entra no chat autenticado, token salvo no localStorage
 
-- **Edge Case Input**: ...
-  **Output**: ...
+- **Edge Case Input**: Usuário tenta cadastrar com email já existente
+  **Output**: Erro "Este email já está cadastrado"
+
+- **Edge Case Input**: Usuário faz logout e recarrega a página
+  **Output**: Volta à tela de login, chats da conta persistem para próximo login
 
 ## A — Approach
-_Describe your high-level strategy conceptually. How did you design the solution?_
+JWT guardado no localStorage. Cada request envia Bearer token. Backend decodifica e valida. Logout remove o token do localStorage.
 
 ## C — Code
-_Identify the most critical code changes, format as actual files, functions, or methods. Justify the intent of your design choices rather than just acknowledging the syntax changes._
+- verify_password — mais crítica, porta de entrada da autenticação
+- create_access_token — gera identidade digital, erros aqui comprometem tudo
+- get_current_user/require_user — gatekeeper executado em toda request
+- hash_password — importante mas delegado ao bcrypt battle-tested
 
 ## T — Tests
-_Explain how the solution was validated, pointing to the actual test files, functions, or methods. Document any manual or automated tests._
+4 camadas — testes unitários (schemas, hash, JWT), integração (11 cenários via TestClient), script Python via API, teste manual no navegador com reload.
 
 ## O — Optimize
-_Address Big(O) complexity, note that sometimes it doesn't apply, trade-offs, constraints, and opportunities for future improvement._
+Logout não invalida token no servidor, sem rate limiting, token 24h fixo sem refresh, SECRET_KEY no .env, sem auditoria de login, sem HTTPS.

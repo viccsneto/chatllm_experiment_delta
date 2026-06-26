@@ -11,6 +11,8 @@ const WELCOME_MESSAGE = {
 };
 
 function App() {
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [messages, setMessages] = useState([WELCOME_MESSAGE]);
@@ -22,8 +24,20 @@ function App() {
   const abortControllerRef = useRef(null);
   const initializedRef = useRef(false);
 
+  // Check auth on mount
   useEffect(() => {
-    if (initializedRef.current) return;
+    (async () => {
+      const result = await authCheck();
+      if (result) {
+        setUser(result);
+      }
+      setAuthLoading(false);
+    })();
+  }, []);
+
+  // Load sessions when user is authenticated
+  useEffect(() => {
+    if (!user || initializedRef.current) return;
     initializedRef.current = true;
     (async () => {
       try {
@@ -39,7 +53,7 @@ function App() {
         setError("Falha ao carregar sessoes. Recarregue a pagina.");
       }
     })();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (!activeSessionId) return;
@@ -211,6 +225,33 @@ function App() {
     }
   };
 
+  const handleAuthSuccess = (result) => {
+    setUser({ id: null, email: result.email });
+  };
+
+  const handleLogout = () => {
+    authLogout();
+    setUser(null);
+    setSessions([]);
+    setActiveSessionId(null);
+    setMessages([WELCOME_MESSAGE]);
+    initializedRef.current = false;
+  };
+
+  // Show auth page while loading or if not authenticated
+  if (authLoading) {
+    return React.createElement("div", { className: "auth-page" },
+      React.createElement("div", { className: "auth-card" },
+        React.createElement("div", { className: "auth-brand" }, "ChatLLM Lab"),
+        React.createElement("p", { style: { textAlign: "center", color: "#888" } }, "Verificando autenticacao...")
+      )
+    );
+  }
+
+  if (!user) {
+    return React.createElement(AuthPage, { onAuthSuccess: handleAuthSuccess });
+  }
+
   return (
     <div className="app-layout">
       {sidebarOpen && (
@@ -238,6 +279,24 @@ function App() {
             </svg>
           </button>
           <div className="brand">ChatLLM Lab</div>
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>{user?.email}</span>
+            <button
+              onClick={handleLogout}
+              style={{
+                border: "1px solid var(--border)",
+                background: "transparent",
+                borderRadius: "6px",
+                padding: "4px 10px",
+                fontSize: "0.8rem",
+                cursor: "pointer",
+                color: "var(--muted)",
+              }}
+              title="Sair"
+            >
+              Sair
+            </button>
+          </div>
         </header>
 
         <section className="messages" aria-live="polite" ref={messagesRef}>
